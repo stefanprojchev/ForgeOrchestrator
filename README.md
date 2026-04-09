@@ -1,138 +1,203 @@
 # ForgeOrchestrator
 
-Sequence, pipeline, and monitor orchestrators for iOS app flows for iOS.
+Orchestrate iOS app flows — startup gates, data pipelines, and continuous monitors.
+
+![Swift 6.3+](https://img.shields.io/badge/Swift-6.3+-orange.svg)
+![iOS 18+](https://img.shields.io/badge/iOS-18+-blue.svg)
+![macOS 15+](https://img.shields.io/badge/macOS-15+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
+[![Release](https://img.shields.io/github/v/release/stefanprojchev/ForgeOrchestrator)](https://github.com/stefanprojchev/ForgeOrchestrator/releases)
+
+📖 **[Full documentation →](https://stefanprojchev.github.io/ForgeOrchestrator/)**
+
+---
+
+ForgeOrchestrator gives you three orchestrators for three common app-flow shapes. Each shares the same action model — identity, priority, `shouldRun()` gate — but runs them differently.
+
+| Orchestrator | Runs | State sharing | Use case |
+|---|---|---|---|
+| **SequenceOrchestrator** | Once | None | App launch gates — onboarding, force-update, terms |
+| **PipelineOrchestrator** | Once | `PipelineContext` | Data-loading flows — actions share typed results |
+| **MonitorOrchestrator** | Interval or on-demand | None | Continuous checks — expired terms, periodic sync |
+
+## Features
+
+- **Three orchestrators** for three distinct flow shapes
+- **Priority-ordered execution** — `.critical`, `.high`, `.medium`, `.low`
+- **Concurrent gate evaluation** — `shouldRun()` runs in parallel across all actions
+- **`@MainActor @Observable`** — bind `isProcessing`, `eligibleCount`, `currentActionId` directly to SwiftUI
+- **`CompletionSignal`** for bridging async actions with UI completion callbacks
+- **Screen exclusion** on `MonitorOrchestrator` — suppress interruption during critical flows
 
 ## Requirements
 
-- iOS 16+
-- Swift 6.0+
+- **iOS** 18+
+- **macOS** 15+
+- **Swift** 6.3+ (Xcode 26 or later)
 
 ## Installation
 
-### Swift Package Manager
+### Xcode
 
-Add ForgeOrchestrator to your project via Xcode:
+1. **File → Add Package Dependencies…**
+2. Paste `https://github.com/stefanprojchev/ForgeOrchestrator.git`
+3. Set rule to **Up to Next Major** from `1.0.0`
 
-1. **File > Add Package Dependencies...**
-2. Enter the repository URL
-3. Select the version rule and add to your target
-
-Or add it directly to your `Package.swift`:
+### Package.swift
 
 ```swift
 dependencies: [
     .package(url: "https://github.com/stefanprojchev/ForgeOrchestrator.git", from: "1.0.0")
+],
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: ["ForgeOrchestrator"]
+    )
 ]
 ```
 
 ## Quick Start
 
+### Sequence — app launch gates
+
 ```swift
 import ForgeOrchestrator
 
-let orchestrator = StartupOrchestrator()
-
-orchestrator.register(ForceUpdateAction())
-orchestrator.register(OnboardingAction())
-orchestrator.register(WhatsNewAction())
-
-let executed = await orchestrator.evaluate()
-// Eligible actions run one at a time, in priority order
-```
-
-## StartupAction
-
-Each action provides its priority, a condition, and an execution block:
-
-```swift
-protocol StartupAction: Sendable {
-    var id: String { get }           // defaults to type name
-    var priority: StartupPriority { get }
-    func shouldRun() async -> Bool
-    func execute() async
-}
-```
-
-`execute()` must eventually return. Use `CompletionSignal` to suspend until the user dismisses a screen.
-
-```swift
-final class OnboardingAction: StartupAction {
-    let priority = StartupPriority.high
-    let signal = CompletionSignal()
+struct OnboardingAction: SequenceAction {
+    let id = ActionID("onboarding")
+    let priority: ActionPriority = .high
 
     func shouldRun() async -> Bool {
-        !UserDefaults.standard.bool(forKey: "onboardingComplete")
+        !UserDefaults.standard.bool(forKey: "onboarded")
     }
 
     func execute() async {
-        await MainActor.run { showOnboarding(signal: signal) }
+        let signal = CompletionSignal()
+        OnboardingPresenter.show { signal.complete() }
         await signal.wait()
+        UserDefaults.standard.set(true, forKey: "onboarded")
+    }
+}
+
+// App launch
+@main
+struct App {
+    @State private var orchestrator = SequenceOrchestrator()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .task {
+                    orchestrator.register([
+                        ForceUpdateAction(),
+                        OnboardingAction(),
+                        WhatsNewAction(),
+                    ])
+                    await orchestrator.evaluate()
+                }
+        }
     }
 }
 ```
 
-## StartupPriority
-
-| Priority | Use case | Example |
-|----------|----------|---------|
-| `.critical` | Blocks all app usage | Force update, maintenance mode, terms acceptance |
-| `.high` | Core setup the user must complete | Onboarding, required permissions, migration |
-| `.medium` | Important but skippable | What's new, optional permissions, review prompt |
-| `.low` | Nice to have, non-intrusive | Tips, promotions, announcements |
-
-Actions are sorted by priority (critical first). Within the same level, registration order is preserved.
-
-## CompletionSignal
-
-Bridges async orchestration with UI completion events. The action creates a signal, passes it to UI, and `await`s it. The UI calls `complete()` when the user is done.
+### Pipeline — actions share state
 
 ```swift
-let signal = CompletionSignal()
+import ForgeOrchestrator
 
-// In the action
-await signal.wait()   // suspends until complete() is called
+struct LoadPostsAction: PipelineAction {
+    let id: ActionID = "load-posts"
+    let priority: ActionPriority = .high
 
-// In the UI (any thread)
-signal.complete()     // resumes the waiting action
+    func shouldRun() async -> Bool { true }
+
+    func execute(context: PipelineContext) async -> ActionResult {
+        let posts = try? await api.fetchPosts()
+        context.set("posts", posts ?? [])
+        return posts != nil ? .completed : .failed("fetch failed")
+    }
+}
+
+struct FilterPostsAction: PipelineAction {
+    let id: ActionID = "filter-posts"
+    let priority: ActionPriority = .medium
+
+    func shouldRun() async -> Bool { true }
+
+    func execute(context: PipelineContext) async -> ActionResult {
+        guard let posts: [Post] = context.get("posts") else {
+            return .skipped
+        }
+        context.set("filtered", posts.filter(\.isPublished))
+        return .completed
+    }
+}
+
+let pipeline = PipelineOrchestrator()
+pipeline.register([LoadPostsAction(), FilterPostsAction()])
+let results = await pipeline.evaluate()
 ```
 
-Thread-safe, idempotent. Multiple `complete()` calls are no-ops.
-
-## StartupOrchestrator
-
-`@Observable` for SwiftUI reactivity. Evaluates all registered actions concurrently, sorts eligible ones by priority, then executes sequentially to prevent multiple alerts/screens from stacking.
+### Monitor — continuous checks
 
 ```swift
-let orchestrator = StartupOrchestrator()
+import ForgeOrchestrator
 
-// Observable properties for UI
-orchestrator.isProcessing   // currently evaluating/executing
-orchestrator.currentActionId // ID of the running action
-orchestrator.eligibleCount   // actions that passed shouldRun()
-orchestrator.completedCount  // actions finished so far
+let monitor = MonitorOrchestrator(interval: 300)  // re-check every 5 minutes
+monitor.register(TermsExpiredAction())
+monitor.register(SessionTimeoutAction())
+
+// Don't interrupt the user during critical flows
+monitor.setExcludedScreens(["Checkout", "VideoCall"])
+
+monitor.start()
 ```
 
-Safe to call `evaluate()` multiple times — concurrent calls are ignored while processing. Returns the IDs of executed actions.
+## Observable progress UI
 
-## Thread Safety
+All three orchestrators are `@MainActor @Observable`. Bind them directly to SwiftUI:
 
-`StartupOrchestrator` is `@Observable` and `@MainActor`-isolated. `CompletionSignal` is `Sendable` — `wait()` and `complete()` are safe from any thread, backed by `LockedState`. `StartupAction` requires `Sendable` conformance.
+```swift
+struct StartupProgress: View {
+    @Bindable var orchestrator: SequenceOrchestrator
 
-## Forge Ecosystem
+    var body: some View {
+        if orchestrator.isProcessing {
+            ProgressView(
+                value: Double(orchestrator.completedCount),
+                total: Double(orchestrator.eligibleCount)
+            )
+            if let id = orchestrator.currentActionId {
+                Text("Running: \(id.rawValue)")
+            }
+        }
+    }
+}
+```
 
-ForgeOrchestrator is part of the **Forge** family of Swift packages for iOS:
+## Documentation
+
+- **[Getting Started](https://stefanprojchev.github.io/ForgeOrchestrator/docs/getting-started/)**
+- **[Action Model](https://stefanprojchev.github.io/ForgeOrchestrator/docs/action-model/)** — shared protocols, `ActionID`, `ActionPriority`, `ActionResult`
+- **[SequenceOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/sequence-orchestrator/)** · **[PipelineOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/pipeline-orchestrator/)** · **[MonitorOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/monitor-orchestrator/)**
+- **[CompletionSignal](https://stefanprojchev.github.io/ForgeOrchestrator/docs/completion-signal/)** — bridging async actions with UI
+
+## The Forge Family
+
+ForgeOrchestrator is part of the **Forge** family of Swift packages for iOS.
 
 | Package | Description |
-|---------|-------------|
-| [ForgeCore](https://github.com/stefanprojchev/ForgeCore) | Thread-safe utilities — `LockedState` and `SendableFileManager` |
-| [ForgeInject](https://github.com/stefanprojchev/ForgeInject) | Lightweight dependency injection with property wrapper |
-| [ForgeObservers](https://github.com/stefanprojchev/ForgeObservers) | Reactive system observers (connectivity, lifecycle, keyboard, and more) |
-| [ForgeStorage](https://github.com/stefanprojchev/ForgeStorage) | Type-safe persistence — key-value, file storage, and Keychain |
-| [ForgeBackgroundTasks](https://github.com/stefanprojchev/ForgeBackgroundTasks) | BGTaskScheduler registration, scheduling, and dispatch |
-| [ForgeLocation](https://github.com/stefanprojchev/ForgeLocation) | Location-based triggers — geofencing, significant changes, visits |
-| [ForgePush](https://github.com/stefanprojchev/ForgePush) | Push notification management — permissions, tokens, silent and visible routing |
-| **ForgeOrchestrator** | Sequence, pipeline, and monitor orchestrators for iOS app flows |
+|---|---|
+| [ForgeCore](https://github.com/stefanprojchev/ForgeCore) | Thread-safe primitives for iOS Swift packages. |
+| [ForgeInject](https://github.com/stefanprojchev/ForgeInject) | Dependency injection with constructor and property wrapper support. |
+| [ForgeObservers](https://github.com/stefanprojchev/ForgeObservers) | Reactive system observers — connectivity, lifecycle, keyboard, and more. |
+| [ForgeStorage](https://github.com/stefanprojchev/ForgeStorage) | Type-safe key-value, file, and Keychain storage. |
+| **ForgeOrchestrator** | Orchestrate app flows — startup gates, data pipelines, and continuous monitors. |
+| [ForgePush](https://github.com/stefanprojchev/ForgePush) | Push notification management — permissions, tokens, and routing. |
+| [ForgeLocation](https://github.com/stefanprojchev/ForgeLocation) | Location triggers — geofencing, significant changes, and visits. |
+| [ForgeBackgroundTasks](https://github.com/stefanprojchev/ForgeBackgroundTasks) | Background task scheduling and dispatch. |
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+ForgeOrchestrator is released under the MIT License. See [LICENSE](LICENSE).
