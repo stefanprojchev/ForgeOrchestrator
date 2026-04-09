@@ -1,0 +1,135 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import PageNavigation from "../../components/PageNavigation.astro";
+
+const basicUsage = `import ForgeOrchestrator
+
+let pipeline = PipelineOrchestrator()
+pipeline.register(LoadPostsAction())
+pipeline.register(FilterPostsAction())
+pipeline.register(ShowBannerAction())
+
+let results: [ActionResult] = await pipeline.evaluate()`;
+
+const contextExample = `struct LoadPostsAction: PipelineAction {
+    let id: ActionID = "load-posts"
+    let priority: ActionPriority = .high
+
+    func shouldRun() async -> Bool { true }
+
+    func execute(context: PipelineContext) async -> ActionResult {
+        do {
+            let posts = try await api.fetchPosts()
+            context.set("posts", posts)
+            return .completed
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+}
+
+struct FilterPostsAction: PipelineAction {
+    let id: ActionID = "filter-posts"
+    let priority: ActionPriority = .medium
+
+    func shouldRun() async -> Bool { true }
+
+    func execute(context: PipelineContext) async -> ActionResult {
+        guard let posts: [Post] = context.get("posts") else {
+            return .skipped  // upstream action didn't populate posts
+        }
+        let filtered = posts.filter { $0.isPublished }
+        context.set("filtered-posts", filtered)
+        return .completed
+    }
+}`;
+
+const contextApi = `let context = PipelineContext()
+
+// Set — accepts any Sendable value
+context.set("posts", [Post, Post, Post])
+context.set("filter-count", 42)
+
+// Get — strongly typed via generic, returns nil on missing or wrong type
+let posts: [Post]? = context.get("posts")
+let count: Int? = context.get("filter-count")
+
+// Remove
+context.remove("posts")`;
+
+const resultsHandling = `let results = await pipeline.evaluate()
+
+for result in results {
+    switch result {
+    case .completed:
+        logger.info("Action completed")
+    case .skipped:
+        logger.info("Action skipped")
+    case .failed(let reason):
+        logger.error("Action failed: \\(reason)")
+    }
+}`;
+---
+
+<DocsLayout title="PipelineOrchestrator" section="docs">
+  <h1>PipelineOrchestrator</h1>
+  <p class="text-lg text-muted-foreground mt-1 mb-8">Runs actions sequentially with typed shared state and explicit results.</p>
+
+  <h2>When to Use</h2>
+  <p>Use <code>PipelineOrchestrator</code> when your actions form a data-processing flow — action A loads data, action B filters it, action C renders it. Each action can read what previous ones stored via <code>PipelineContext</code>.</p>
+
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Key difference from <code>SequenceOrchestrator</code>:</strong> pipeline actions take a <code>PipelineContext</code> parameter and return an <code>ActionResult</code>. This gives downstream actions typed access to upstream data, and the orchestrator returns a full results array you can observe.
+  </p>
+
+  <h2>Basic Usage</h2>
+  <CodeBlock code={basicUsage} />
+
+  <h2>Sharing Data via Context</h2>
+  <p>Each <code>evaluate()</code> call creates a fresh <code>PipelineContext</code>. Actions write to it with <code>set</code>, and subsequent actions read with <code>get</code>. The context is typed via generics — reading with the wrong type returns <code>nil</code>.</p>
+  <CodeBlock code={contextExample} />
+
+  <h3>Context API</h3>
+  <CodeBlock code={contextApi} />
+
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Fresh per run:</strong> a new <code>PipelineContext</code> is created at the start of every <code>evaluate()</code> call. Data does not leak between runs.
+  </p>
+
+  <h2>Handling Results</h2>
+  <p><code>evaluate()</code> returns an array of <code>ActionResult</code> values in priority order. You can use this to log, report, or branch on the outcome.</p>
+  <CodeBlock code={resultsHandling} />
+
+  <h3>Result semantics</h3>
+  <ul>
+    <li><strong><code>.completed</code></strong> — the action did its job. Downstream actions can rely on its side effects (e.g., context keys it wrote).</li>
+    <li><strong><code>.skipped</code></strong> — the action started, checked a runtime precondition, and bailed out. Typically used when an upstream action didn't populate a required context key.</li>
+    <li><strong><code>.failed(reason)</code></strong> — the action hit an error. Downstream actions still run by default — pipeline does not short-circuit on failure.</li>
+  </ul>
+
+  <p class="rounded-lg border border-red-500/50 bg-red-500/5 p-4 text-sm">
+    <strong>Pipelines don't short-circuit:</strong> a failed action does not stop the pipeline. If you need abort-on-failure semantics, have downstream actions check the previous results or context keys and return <code>.skipped</code>.
+  </p>
+
+  <h2>Observable State</h2>
+  <p>Same as <code>SequenceOrchestrator</code>: <code>isProcessing</code>, <code>currentActionId</code>, <code>eligibleCount</code>, <code>completedCount</code>. Bind them to SwiftUI views for progress indicators.</p>
+
+  <h2>Thread Safety</h2>
+  <p><code>PipelineContext</code> is backed by a <code>LockedState</code> (internally <code>Mutex&lt;[String: Any]&gt;</code>). Actions can safely read/write from any actor — though since pipeline actions run sequentially, concurrent context access from the pipeline itself doesn't happen.</p>
+
+  <h2>Best Practices</h2>
+  <ul>
+    <li><strong>Use stable, namespaced context keys.</strong> <code>"feed.posts"</code> or <code>"user.profile"</code> beats <code>"data"</code>. Collisions are silent.</li>
+    <li><strong>Document context contracts.</strong> Add a comment to each action listing the keys it reads and writes. The compiler won't enforce it.</li>
+    <li><strong>Return <code>.skipped</code>, not <code>.failed</code>, for missing upstream data.</strong> <code>.failed</code> is for actual errors; missing data is a normal control-flow case.</li>
+    <li><strong>Don't store non-<code>Sendable</code> values.</strong> The <code>set</code> API requires <code>T: Sendable</code>. Wrap non-sendable values in a box or refactor the data.</li>
+  </ul>
+
+  <PageNavigation
+    prevHref="docs/sequence-orchestrator"
+    prevLabel="SequenceOrchestrator"
+    nextHref="docs/monitor-orchestrator"
+    nextLabel="MonitorOrchestrator"
+  />
+</DocsLayout>

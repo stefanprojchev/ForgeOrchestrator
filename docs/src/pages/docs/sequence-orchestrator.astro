@@ -1,0 +1,137 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import PageNavigation from "../../components/PageNavigation.astro";
+
+const basicUsage = `import ForgeOrchestrator
+
+let orchestrator = SequenceOrchestrator()
+
+orchestrator.register(ForceUpdateAction())
+orchestrator.register(OnboardingAction())
+orchestrator.register(WhatsNewAction())
+
+// Runs eligible actions in priority order, one at a time
+let executed: [ActionID] = await orchestrator.evaluate()`;
+
+const batchRegistration = `orchestrator.register([
+    ForceUpdateAction(),
+    OnboardingAction(),
+    WhatsNewAction(),
+])`;
+
+const observableState = `struct StartupProgressView: View {
+    @Bindable var orchestrator: SequenceOrchestrator
+
+    var body: some View {
+        if orchestrator.isProcessing {
+            VStack {
+                ProgressView(
+                    value: Double(orchestrator.completedCount),
+                    total: Double(orchestrator.eligibleCount)
+                )
+                if let current = orchestrator.currentActionId {
+                    Text("Running: \\(current.rawValue)")
+                }
+            }
+        }
+    }
+}`;
+
+const reEvaluation = `// After state changes (e.g. user completed onboarding),
+// tear down and re-evaluate to pick up newly eligible actions
+orchestrator.removeAll()
+orchestrator.register([WhatsNewAction(), ReviewPromptAction()])
+await orchestrator.evaluate()`;
+
+const completionSignalExample = `struct OnboardingAction: SequenceAction {
+    let id: ActionID = "onboarding"
+    let priority: ActionPriority = .high
+
+    func shouldRun() async -> Bool {
+        !UserDefaults.standard.bool(forKey: "onboarded")
+    }
+
+    func execute() async {
+        // Present UI, then wait for the user to finish
+        let signal = CompletionSignal()
+        OnboardingPresenter.show { signal.complete() }
+        await signal.wait()
+        UserDefaults.standard.set(true, forKey: "onboarded")
+    }
+}`;
+---
+
+<DocsLayout title="SequenceOrchestrator" section="docs">
+  <h1>SequenceOrchestrator</h1>
+  <p class="text-lg text-muted-foreground mt-1 mb-8">Runs actions once, sequentially, in priority order. Built for app launch gates.</p>
+
+  <h2>When to Use</h2>
+  <p>Use <code>SequenceOrchestrator</code> when you have a set of one-shot actions that need to run in a defined order — like the gates that appear between app launch and the home screen. Each action runs to completion before the next begins.</p>
+
+  <h2>Basic Usage</h2>
+  <CodeBlock code={basicUsage} />
+
+  <h3>Batch registration</h3>
+  <p>Register multiple actions at once with the array overload.</p>
+  <CodeBlock code={batchRegistration} />
+
+  <h2>Evaluation Lifecycle</h2>
+  <ol>
+    <li><strong>Condition evaluation</strong> — <code>shouldRun()</code> is called on every registered action <em>concurrently</em>. Cheap, idempotent, and parallel.</li>
+    <li><strong>Priority sorting</strong> — eligible actions are sorted <code>.critical &rarr; .low</code>. Ties preserve registration order.</li>
+    <li><strong>Sequential execution</strong> — actions run one at a time, in priority order. Each <code>execute()</code> must return before the next begins.</li>
+    <li><strong>Completion</strong> — <code>evaluate()</code> returns the IDs of every action that ran.</li>
+  </ol>
+
+  <h2>Reentrancy</h2>
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Concurrent <code>evaluate()</code> calls are ignored.</strong> If one evaluation is already in progress and you call <code>evaluate()</code> again, the second call returns an empty array immediately. Check <code>isProcessing</code> if you want to branch.
+  </p>
+
+  <h2>Observable State</h2>
+  <p><code>SequenceOrchestrator</code> is <code>@Observable @MainActor</code>. Bind its published state directly to SwiftUI views for progress UI.</p>
+
+  <div class="overflow-x-auto">
+    <table>
+      <thead>
+        <tr><th>Property</th><th>Type</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>isProcessing</code></td><td><code>Bool</code></td><td>True while evaluation is running</td></tr>
+        <tr><td><code>currentActionId</code></td><td><code>ActionID?</code></td><td>The action currently executing (or <code>nil</code>)</td></tr>
+        <tr><td><code>eligibleCount</code></td><td><code>Int</code></td><td>Actions that passed <code>shouldRun()</code> in the current run</td></tr>
+        <tr><td><code>completedCount</code></td><td><code>Int</code></td><td>Actions that finished executing so far</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <CodeBlock code={observableState} />
+
+  <h2>Re-evaluation</h2>
+  <p>A single orchestrator can run multiple evaluation cycles across the app's lifetime. For example, after the user completes onboarding, tear down the onboarding action and evaluate a different set.</p>
+  <CodeBlock code={reEvaluation} />
+
+  <h2>Bridging UI with CompletionSignal</h2>
+  <p>When an action shows a UI flow and needs to wait for the user, use <code>CompletionSignal</code> to bridge async code with the completion callback.</p>
+  <CodeBlock code={completionSignalExample} />
+
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Don't block forever.</strong> If <code>execute()</code> suspends indefinitely (e.g., a <code>CompletionSignal</code> that's never completed), the entire queue stalls. Always give the user a path to resolve the flow.
+  </p>
+
+  <h2>Best Practices</h2>
+  <ul>
+    <li><strong>One evaluate per launch cycle.</strong> Don't call <code>evaluate()</code> in a loop — if you need continuous re-checking, use <code>MonitorOrchestrator</code> instead.</li>
+    <li><strong>Let <code>.critical</code> be truly critical.</strong> Reserve it for actions that must complete before anything else runs. Overusing <code>.critical</code> defeats the point of the ordering.</li>
+    <li><strong>Make actions independent.</strong> SequenceOrchestrator has no shared state between actions. If action B needs data from action A, use <code>PipelineOrchestrator</code> instead.</li>
+    <li><strong>Observe from SwiftUI.</strong> Use the <code>@Observable</code> properties for progress UI rather than polling or relying on callbacks.</li>
+  </ul>
+
+  <PageNavigation
+    prevHref="docs/action-model"
+    prevLabel="Action Model"
+    nextHref="docs/pipeline-orchestrator"
+    nextLabel="PipelineOrchestrator"
+  />
+</DocsLayout>

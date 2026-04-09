@@ -1,0 +1,97 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { proseClasses } from "../config";
+
+interface Props {
+  title: string;
+  sections: { id: string; title: string }[];
+}
+
+const { title, sections } = Astro.props;
+---
+
+<BaseLayout title={title}>
+  <div class="mx-auto flex max-w-6xl gap-8 px-6 pt-12 pb-20 lg:gap-10">
+    <!-- Left TOC -->
+    <aside class="hidden w-52 shrink-0 lg:block">
+      <nav class="sticky top-20">
+        <h3 class="mb-3 font-mono text-[11px] font-medium uppercase tracking-widest text-muted-foreground">On this page</h3>
+        <ul class="space-y-0.5">
+          {sections.map((s) => (
+            <li>
+              <a
+                href={`#${s.id}`}
+                data-slug={s.id}
+                class="legal-toc-link block rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {s.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="min-w-0 flex-1">
+      <article class={proseClasses}>
+        <slot />
+      </article>
+    </main>
+  </div>
+</BaseLayout>
+
+<script>
+  function initLegalToc() {
+    const links = document.querySelectorAll<HTMLAnchorElement>(".legal-toc-link");
+    if (!links.length) return;
+
+    let active: HTMLAnchorElement | null = null;
+
+    function setActive(link: HTMLAnchorElement) {
+      if (active === link) return;
+      active?.classList.remove("text-amber-400", "font-medium");
+      link.classList.add("text-amber-400", "font-medium");
+      active = link;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let best: Element | null = null;
+        let bestTop = Infinity;
+
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const top = entry.boundingClientRect.top;
+            if (top >= 0 && top < bestTop) {
+              bestTop = top;
+              best = entry.target;
+            }
+          }
+        }
+
+        if (!best) {
+          for (const entry of entries) {
+            if (entry.isIntersecting) best = entry.target;
+          }
+        }
+
+        if (best) {
+          const match = Array.from(links).find((l) => l.dataset.slug === best!.id);
+          if (match) setActive(match);
+        }
+      },
+      { rootMargin: "-80px 0px -60% 0px", threshold: 0 }
+    );
+
+    links.forEach((link) => {
+      const target = document.getElementById(link.dataset.slug || "");
+      if (target) observer.observe(target);
+    });
+
+    if (links.length) setActive(links[0]);
+  }
+
+  initLegalToc();
+  document.addEventListener("astro:after-swap", initLegalToc);
+</script>

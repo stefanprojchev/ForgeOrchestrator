@@ -1,0 +1,131 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import PageNavigation from "../../components/PageNavigation.astro";
+
+const classDefinition = `public final class CompletionSignal: @unchecked Sendable {
+    /// Suspend the caller until complete() is called.
+    /// Returns immediately if complete() was already called.
+    ///
+    /// Single-waiter only — calling wait() concurrently from multiple
+    /// callers triggers a precondition failure at runtime.
+    public func wait() async
+
+    /// Resume the suspended caller. Safe to call from any thread.
+    /// Subsequent calls after the first are no-ops.
+    public func complete()
+}`;
+
+const waitAndComplete = `// Inside execute() — create the signal, pass it to UI, then await it
+func execute() async {
+    let signal = CompletionSignal()
+    await MainActor.run {
+        TaskFlowState.shared.onboardingSignal = signal
+        TaskFlowState.shared.showOnboarding = true
+    }
+    await signal.wait()
+}
+
+// In a SwiftUI view — resume evaluation when the user taps Continue
+Button("Continue") {
+    signal.complete()
+}`;
+
+const threadSafety = `// complete() is safe to call from any thread or actor context.
+// CompletionSignal uses LockedState internally to guard mutable state,
+// which is why it is @unchecked Sendable rather than plain Sendable.
+Task.detached {
+    await performBackgroundWork()
+    signal.complete()  // resumes the awaiting evaluate() call
+}`;
+
+const singleWaiter = `// CompletionSignal supports exactly one concurrent waiter.
+// Calling wait() from two places at the same time triggers a precondition:
+//   "CompletionSignal.wait() called concurrently — only one waiter is supported"
+//
+// The orchestrator calls execute() once per action and creates a fresh
+// CompletionSignal each time, so this contract is always satisfied in normal use.
+// Only violate it by manually sharing a signal across multiple await call sites.`;
+
+const bridgingExample = `import SwiftUI
+import ForgeOrchestrator
+
+struct OnboardingAction: SequenceAction {
+    let id: ActionID = "onboarding"
+    let priority: ActionPriority = .high
+
+    func shouldRun() async -> Bool {
+        !UserDefaults.standard.bool(forKey: "onboardingComplete")
+    }
+
+    func execute() async {
+        let signal = CompletionSignal()
+        await MainActor.run {
+            TaskFlowState.shared.onboardingSignal = signal
+            TaskFlowState.shared.showOnboarding = true
+        }
+        // Suspend here — resumes when OnboardingView calls signal.complete()
+        await signal.wait()
+    }
+}
+
+// In the onboarding view:
+struct OnboardingView: View {
+    @Environment(TaskFlowState.self) var state
+
+    var body: some View {
+        VStack {
+            // ... onboarding content ...
+            Button("Get Started") {
+                UserDefaults.standard.set(true, forKey: "onboardingComplete")
+                state.showOnboarding = false
+                state.onboardingSignal?.complete()
+            }
+        }
+    }
+}`;
+
+const fireAndForget = `// For actions that don't need to gate evaluation on UI,
+// just return from execute() when the work is done — no signal needed.
+func execute() async {
+    Analytics.shared.initialize()
+    await RemoteConfig.shared.prefetch()
+    // Returning from execute() automatically unblocks the orchestrator.
+}`;
+---
+
+<DocsLayout title="CompletionSignal" section="docs">
+  <h1>CompletionSignal</h1>
+  <p class="text-lg text-muted-foreground mt-1 mb-8">A one-shot async bridge. Actions create one inside <code>execute()</code> and await it; external code (a view, a callback) calls <code>complete()</code> to resume evaluation.</p>
+
+  <h2>Class Definition</h2>
+  <p><code>CompletionSignal</code> is <code>@unchecked Sendable</code> rather than plain <code>Sendable</code> because it holds a mutable <code>CheckedContinuation</code> that is guarded by a <code>LockedState</code> lock — a pattern the compiler cannot verify statically but that is safe at runtime.</p>
+  <CodeBlock code={classDefinition} title="CompletionSignal.swift" />
+
+  <h2><code>wait()</code> and <code>complete()</code></h2>
+  <p>Create the signal inside <code>execute()</code>, hand it off to state or a view, then <code>await signal.wait()</code>. The view calls <code>signal.complete()</code> from any context to resume the orchestrator.</p>
+  <CodeBlock code={waitAndComplete} />
+
+  <h2>Thread Safety</h2>
+  <p><code>complete()</code> is safe to call from any thread, queue, or Swift actor. <code>LockedState</code> guards the internal continuation and the completion flag, making every read-modify-write atomic.</p>
+  <CodeBlock code={threadSafety} />
+
+  <h2>Single-Waiter Contract</h2>
+  <p>Each <code>CompletionSignal</code> supports exactly one concurrent waiter. Calling <code>wait()</code> from two places at the same time triggers a <code>precondition</code> failure at runtime. The orchestrator creates a fresh signal per <code>execute()</code> call, so this contract is always satisfied in normal use.</p>
+  <CodeBlock code={singleWaiter} />
+
+  <h2>Bridging Async Evaluation with UI</h2>
+  <p>The most common pattern: create the signal in <code>execute()</code>, pass it to an observable state object, present the UI, and let the UI call <code>complete()</code> when the user finishes. Evaluation is suspended for the duration.</p>
+  <CodeBlock code={bridgingExample} />
+
+  <h2>Fire-and-Forget Actions</h2>
+  <p>For actions that perform background work with no UI gate, skip <code>CompletionSignal</code> entirely. Just return from <code>execute()</code> when the work is done — the orchestrator moves on immediately.</p>
+  <CodeBlock code={fireAndForget} />
+
+  <PageNavigation
+    prevHref="docs/monitor-orchestrator"
+    prevLabel="MonitorOrchestrator"
+    nextHref="examples/basic-setup"
+    nextLabel="Basic Setup"
+  />
+</DocsLayout>

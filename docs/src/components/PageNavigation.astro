@@ -1,0 +1,33 @@
+---
+import { resolveHref } from "../config";
+
+interface Props {
+  prevHref?: string;
+  prevLabel?: string;
+  nextHref?: string;
+  nextLabel?: string;
+}
+
+const { prevHref, prevLabel, nextHref, nextLabel } = Astro.props;
+---
+
+<nav class="not-prose mt-16 flex items-center justify-between border-t border-border/60 pt-6">
+  {prevHref && prevLabel ? (
+    <a
+      href={resolveHref(prevHref)}
+      class="group flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-amber-400"
+    >
+      <span class="transition-transform group-hover:-translate-x-0.5">&larr;</span>
+      {prevLabel}
+    </a>
+  ) : <span />}
+  {nextHref && nextLabel ? (
+    <a
+      href={resolveHref(nextHref)}
+      class="group flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-amber-400"
+    >
+      {nextLabel}
+      <span class="transition-transform group-hover:translate-x-0.5">&rarr;</span>
+    </a>
+  ) : <span />}
+</nav>

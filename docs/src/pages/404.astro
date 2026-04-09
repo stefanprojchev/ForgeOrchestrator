@@ -1,0 +1,32 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import ForgeLine from "../components/ForgeLine.astro";
+import { resolveHref } from "../config";
+---
+
+<BaseLayout title="Page Not Found" noindex>
+  <main class="mx-auto flex min-h-[60vh] max-w-6xl flex-col items-center justify-center px-6 text-center">
+    <h1 class="mb-2 text-7xl font-bold tracking-tighter text-foreground sm:text-8xl">404</h1>
+
+    <div class="mb-6">
+      <ForgeLine />
+    </div>
+
+    <p class="mb-8 text-lg text-muted-foreground">Page not found</p>
+
+    <div class="flex flex-col items-center gap-3 sm:flex-row">
+      <a
+        href={resolveHref("")}
+        class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-orange-600/15 transition-all hover:shadow-orange-600/25 hover:brightness-110 dark:bg-amber-500 dark:text-neutral-950 dark:shadow-amber-500/15 dark:hover:shadow-amber-500/25 sm:w-auto"
+      >
+        Home
+      </a>
+      <a
+        href={resolveHref("docs/getting-started")}
+        class="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card/80 px-5 py-2.5 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-accent sm:w-auto"
+      >
+        Documentation
+      </a>
+    </div>
+  </main>
+</BaseLayout>
