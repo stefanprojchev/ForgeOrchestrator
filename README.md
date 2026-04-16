@@ -8,8 +8,6 @@ Orchestrate iOS app flows — startup gates, data pipelines, and continuous moni
 ![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 [![Release](https://img.shields.io/github/v/release/stefanprojchev/ForgeOrchestrator)](https://github.com/stefanprojchev/ForgeOrchestrator/releases)
 
-📖 **[Full documentation →](https://stefanprojchev.github.io/ForgeOrchestrator/)**
-
 ---
 
 ForgeOrchestrator gives you three orchestrators for three common app-flow shapes. Each shares the same action model — identity, priority, `shouldRun()` gate — but runs them differently.
@@ -175,13 +173,6 @@ struct StartupProgress: View {
     }
 }
 ```
-
-## Documentation
-
-- **[Getting Started](https://stefanprojchev.github.io/ForgeOrchestrator/docs/getting-started/)**
-- **[Action Model](https://stefanprojchev.github.io/ForgeOrchestrator/docs/action-model/)** — shared protocols, `ActionID`, `ActionPriority`, `ActionResult`
-- **[SequenceOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/sequence-orchestrator/)** · **[PipelineOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/pipeline-orchestrator/)** · **[MonitorOrchestrator](https://stefanprojchev.github.io/ForgeOrchestrator/docs/monitor-orchestrator/)**
-- **[CompletionSignal](https://stefanprojchev.github.io/ForgeOrchestrator/docs/completion-signal/)** — bridging async actions with UI
 
 ## The Forge Family
 
