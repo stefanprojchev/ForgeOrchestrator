@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "ForgeOrchestrator", targets: ["ForgeOrchestrator"]),
     ],
     dependencies: [
-        .package(path: "../ForgeCore"),
+        .package(url: "https://github.com/stefanprojchev/ForgeCore.git", from: "1.0.0"),
     ],
     targets: [
         .target(
