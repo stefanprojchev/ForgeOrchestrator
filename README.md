@@ -189,6 +189,9 @@ ForgeOrchestrator is part of the **Forge** family of Swift packages for iOS.
 | [ForgePush](https://github.com/stefanprojchev/ForgePush) | Push notification management — permissions, tokens, and routing. |
 | [ForgeLocation](https://github.com/stefanprojchev/ForgeLocation) | Location triggers — geofencing, significant changes, and visits. |
 | [ForgeBackgroundTasks](https://github.com/stefanprojchev/ForgeBackgroundTasks) | Background task scheduling and dispatch. |
+| [ForgeNetworking](https://github.com/stefanprojchev/ForgeNetworking) | Typed, async/await-first HTTP networking with auth, retry, and background transfers. |
+| [ForgeLog](https://github.com/stefanprojchev/ForgeLog) | Structured logging with pluggable providers and a built-in inspector UI. |
+| [ForgeAccess](https://github.com/stefanprojchev/ForgeAccess) | Subscription-aware feature gating with override channels and debug UI. |
 
 ## License
 

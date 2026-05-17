@@ -1,26 +1,27 @@
 import Foundation
 import OSLog
 
-/// Orchestrates actions sequentially in priority order. Run once.
+/// Orchestrates actions sequentially with results and shared context.
 ///
-/// Evaluates all registered actions' `shouldRun()` concurrently, sorts eligible
-/// by priority, then executes one at a time. Prevents stacking.
+/// Each action receives a `PipelineContext` for inter-action data passing
+/// and returns an `ActionResult`. One context is created per `evaluate()` call.
 ///
 /// ```swift
-/// let orchestrator = SequenceOrchestrator()
-/// orchestrator.register(TermsAction())
-/// orchestrator.register(OnboardingAction())
-/// await orchestrator.evaluate()
+/// let pipeline = PipelineOrchestrator()
+/// pipeline.register(LoadPostsAction())
+/// pipeline.register(FilterPostsAction())
+/// pipeline.register(ShowBannerAction())
+/// let results = await pipeline.evaluate()
 /// ```
 @Observable
 @MainActor
-open class SequenceOrchestrator {
+open class PipelineOrchestrator {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
-    private let logger = Logger(subsystem: "forge.orchestrator", category: "sequence")
+    private let logger = Logger(subsystem: "forge.orchestrator", category: "pipeline")
 
-    /// Whether the orchestrator is currently evaluating or executing actions.
+    /// Whether the pipeline is currently executing.
     public private(set) var isProcessing = false
 
     /// The ID of the currently executing action, or `nil` if idle.
@@ -32,18 +33,20 @@ open class SequenceOrchestrator {
     /// Number of actions completed so far in the current evaluation.
     public private(set) var completedCount = 0
 
-    @ObservationIgnored
-    private var actions: [any SequenceAction] = []
+    /// Results from the last evaluation, in execution order.
+    public private(set) var results: [ActionResult] = []
 
-    // MARK: - Initialization
+    @ObservationIgnored
+    private var actions: [any PipelineAction] = []
+
+    // MARK: - Init
 
     public init() {}
 
     // MARK: - Implementation
 
-    /// Registers an action. Call before `evaluate()`.
-    /// Duplicates (same ID) are skipped.
-    public func register(_ action: any SequenceAction) {
+    /// Registers a pipeline action. Duplicates (same ID) are skipped.
+    public func register(_ action: any PipelineAction) {
         guard !actions.contains(where: { $0.id == action.id }) else {
             logger.warning("Duplicate action ID '\(action.id)' — skipping registration")
             return
@@ -53,7 +56,7 @@ open class SequenceOrchestrator {
     }
 
     /// Registers multiple actions at once.
-    public func register(_ actions: [any SequenceAction]) {
+    public func register(_ actions: [any PipelineAction]) {
         for action in actions { register(action) }
     }
 
@@ -64,10 +67,10 @@ open class SequenceOrchestrator {
 
     /// Evaluates all registered actions and executes eligible ones in priority order.
     ///
-    /// Concurrent calls are ignored while processing.
-    /// - Returns: The IDs of actions that were executed.
+    /// Creates a fresh `PipelineContext` per call. Concurrent calls are ignored while processing.
+    /// - Returns: The results of executed actions, in execution order.
     @discardableResult
-    public func evaluate() async -> [ActionID] {
+    public func evaluate() async -> [ActionResult] {
         guard !isProcessing else {
             logger.debug("Already running — skipping evaluation")
             return []
@@ -75,9 +78,11 @@ open class SequenceOrchestrator {
 
         isProcessing = true
         completedCount = 0
-        var executedIds: [ActionID] = []
+        results = []
 
-        logger.info("Evaluating \(self.actions.count) registered actions")
+        let context = PipelineContext()
+
+        logger.info("Evaluating \(self.actions.count) registered pipeline actions")
 
         let eligible = await evaluateConditions()
 
@@ -88,27 +93,27 @@ open class SequenceOrchestrator {
             currentActionId = action.id
             logger.info("Executing: \(action.id)")
 
-            await action.execute()
+            let result = await action.execute(context: context)
 
-            executedIds.append(action.id)
+            results.append(result)
             completedCount += 1
-            logger.info("Completed: \(action.id) (\(self.completedCount)/\(self.eligibleCount))")
+            logger.info("Completed: \(action.id) (\(self.completedCount)/\(self.eligibleCount)) — \(String(describing: result))")
         }
 
         currentActionId = nil
         isProcessing = false
 
-        logger.info("Sequence complete — executed \(executedIds.count) actions")
+        logger.info("Pipeline complete — executed \(self.results.count) actions")
 
-        return executedIds
+        return results
     }
 
     // MARK: - Private
 
-    private func evaluateConditions() async -> [any SequenceAction] {
+    private func evaluateConditions() async -> [any PipelineAction] {
         let snapshot = actions
 
-        let results = await withTaskGroup(
+        let eligible = await withTaskGroup(
             of: (ActionID, Bool).self,
             returning: Set<ActionID>.self
         ) { group in
@@ -131,7 +136,7 @@ open class SequenceOrchestrator {
         }
 
         return snapshot
-            .filter { results.contains($0.id) }
+            .filter { eligible.contains($0.id) }
             .sorted { $0.priority < $1.priority }
     }
 }

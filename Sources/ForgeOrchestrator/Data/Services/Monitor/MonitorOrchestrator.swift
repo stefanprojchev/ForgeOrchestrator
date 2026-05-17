@@ -17,7 +17,7 @@ import OSLog
 @MainActor
 open class MonitorOrchestrator {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private let logger = Logger(subsystem: "forge.orchestrator", category: "monitor")
     private let interval: TimeInterval?
@@ -40,14 +40,14 @@ open class MonitorOrchestrator {
     @ObservationIgnored
     private var timerTask: Task<Void, Never>?
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     /// - Parameter interval: Optional re-evaluation interval in seconds. `nil` disables automatic re-evaluation.
     public init(interval: TimeInterval? = nil) {
         self.interval = interval
     }
 
-    // MARK: - Registration
+    // MARK: - Implementation
 
     /// Registers a monitor action. Duplicates (same ID) are skipped.
     public func register(_ action: any MonitorAction) {
@@ -69,8 +69,6 @@ open class MonitorOrchestrator {
         actions.removeAll()
     }
 
-    // MARK: - Screen Exclusion
-
     /// Sets the screens where the monitor should not evaluate actions.
     public func setExcludedScreens(_ screens: Set<String>) {
         excludedScreens = screens
@@ -80,8 +78,6 @@ open class MonitorOrchestrator {
     public func updateCurrentScreen(_ screen: String?) {
         currentScreen = screen
     }
-
-    // MARK: - Control
 
     /// Starts the interval-based re-evaluation loop.
     public func start() {

@@ -9,7 +9,7 @@ import Foundation
 /// Single-waiter only — calling `wait()` concurrently from multiple callers is not supported.
 public final class CompletionSignal: @unchecked Sendable {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private struct State {
         var continuation: CheckedContinuation<Void, Never>?
@@ -18,7 +18,7 @@ public final class CompletionSignal: @unchecked Sendable {
 
     private let state = LockedState(State())
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     public init() {}
 

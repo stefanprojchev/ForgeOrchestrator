@@ -9,12 +9,7 @@ import Foundation
 /// let id = ActionID("custom")     // from string
 /// ```
 public struct ActionID: Hashable, Sendable, CustomStringConvertible {
-
-    // MARK: - Properties
-
     public let rawValue: String
-
-    // MARK: - Initialization
 
     public init(_ rawValue: String) {
         self.rawValue = rawValue
@@ -23,8 +18,6 @@ public struct ActionID: Hashable, Sendable, CustomStringConvertible {
     public init<E: RawRepresentable>(_ value: E) where E.RawValue == String {
         self.rawValue = value.rawValue
     }
-
-    // MARK: - CustomStringConvertible
 
     public var description: String { rawValue }
 }

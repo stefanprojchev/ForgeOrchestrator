@@ -14,15 +14,10 @@ import Foundation
 /// | `.medium` | Important but skippable | What's new, optional permissions, review prompt |
 /// | `.low` | Nice to have, non-intrusive | Tips, promotions, announcements |
 public enum ActionPriority: Int, Comparable, Sendable {
-
-    // MARK: - Cases
-
     case critical = 0
     case high = 1
     case medium = 2
     case low = 3
-
-    // MARK: - Implementation
 
     public static func < (lhs: ActionPriority, rhs: ActionPriority) -> Bool {
         lhs.rawValue < rhs.rawValue

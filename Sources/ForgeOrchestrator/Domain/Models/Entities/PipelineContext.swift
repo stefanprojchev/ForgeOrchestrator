@@ -14,11 +14,11 @@ import Foundation
 /// ```
 public final class PipelineContext: @unchecked Sendable {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private let state = LockedState<[String: Any]>([:])
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     public init() {}
 
